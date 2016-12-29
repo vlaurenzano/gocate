@@ -29,6 +29,10 @@ func BenchmarkBuildIndex(b *testing.B) {
 //}
 
 
+//func TestBuildIndex(b *testing.T){
+//	buildIndex("/home/vlaurenzano")
+//}
+
 func TestBuildIndex(b *testing.T){
-	buildIndex("/home/vlaurenzano")
+	main()
 }
