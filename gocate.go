@@ -10,7 +10,8 @@ import (
 func main(){
 
 	if len(os.Args) < 2 {
-		panic("You must supply an argument")
+		fmt.Println("You must supply an argument")
+		os.Exit(2)
 	}
 
 	var documents []string
