@@ -5,18 +5,34 @@ import (
 	"fmt"
 	"strings"
 	"container/heap"
+	"flag"
 )
 
 func main(){
 
 	if len(os.Args) < 2 {
-		fmt.Println("You must supply an argument")
-		os.Exit(2)
+		fmt.Println("You must supply an argument. Use -h to list instructions.")
+		os.Exit(1)
 	}
+
+
+	update  := flag.Bool("u", false, "Update the database" );
+
+	flag.Parse();
+
+	if *update {
+		BuildIndex("/");
+		os.Exit(0);
+	}
+
+
+
 
 	var documents []string
 
-	err := Load(&documents)
+
+	err := Load(&documents, Config())
+
 	if(err != nil){
 		panic(err)
 	}
@@ -24,6 +40,7 @@ func main(){
 	pattern := os.Args[1]
 
 	matchFiles(pattern, documents)
+
 }
 
 

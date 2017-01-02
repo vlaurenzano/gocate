@@ -15,26 +15,59 @@ import (
 	"path/filepath"
 
 	"fmt"
+	"sort"
 )
+
 
 var documents []string
 
-const DB_PATH = "/tmp/docs.gob"
 
+type IndexBuilder interface {
+	Build(dir string)
+}
+type BuildIndexConcurrent struct {}
+type BuildIndexWithWalk struct {}
 
-type FolderWalker interface {
-	Walk()
+//Builds the index and saves it.
+func BuildIndex(dir string){
+	config := Config()
+	builder := makeIndexBuilder(config)
+	builder.Build("/")
+	sort.Strings(documents)
+	save(documents, config)
 }
 
-func Build() {
-	buildIndexWithWalk("/")
-	Save(documents)
-	//sort.Strings(documents)
+//makeIndexBuilder is our index builder factory. It chooses the appropriate struct based on the configuration value.
+func makeIndexBuilder(c Configuration) IndexBuilder {
+	if c.BuildIndexStrategy == "Concurrent" {
+		return BuildIndexConcurrent{}
+	}
+	if c.BuildIndexStrategy == "Iterative" {
+		return BuildIndexWithWalk{}
+	}
+	fmt.Println(os.Stderr, "Invalid configuration value for GOCATE_BUILD_INDEX_STRATEGY. Please set it to Concurrent or Iterative. Choosing Default.")
+	return BuildIndexConcurrent{}
+}
+
+//Builds index using filepath.Walk.
+func (BuildIndexConcurrent) Build(dir string) {
+	buildIndexWithWalk(dir)
+}
+
+//Builds index using concurrent strategy.
+func (BuildIndexWithWalk) Build(dir string) {
+	buildIndexConcurrent(dir)
 }
 
 //BuildIndexConcurrent builds the index by walking through the filepath while calling readDir concurrently.
 //The amount of concurrent calls to readDir are limited for two reasons 1) To prevent opening too many files
 //2) To modify for best performance.It is considerably faster than using filepath.Walk when reading large directories.
+//Indexing the root directory after wiping filesystem cache (using sync && echo 3 > sudo /proc/sys/vm/drop_caches)
+//ran in 18seconds vs 34 seconds with filepath.Walk.
+// Using Golangs benchmarking test directly after wiping the filesystem cache yielded:
+//BenchmarkBuildIndexWalk-8   	    2000	    508818 ns/op
+//BenchmarkBuildIndexConcurrent-8   2000000000	        0.12 ns/op
+//Note that these are from different runs to prevent them from interfering which eachother,
 func buildIndexConcurrent(dir string) {
 	numbJobs := 100
 	jobsRunning := 0
@@ -113,12 +146,12 @@ func readDir(dir string, results chan <- string, dirsToRead chan <- string, fini
 }
 
 
-
+//BuildIndexWithWalk builds the index using golang's filepath.Walk
 func buildIndexWithWalk(dir string) {
 	//fmt.Println(len(documents))
 	filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
 		if (err != nil) {
-			//fmt.Println(err)
+			fmt.Fprintln(os.Stdout, err)
 		}
 		documents = append(documents, path)
 		return nil
@@ -126,8 +159,8 @@ func buildIndexWithWalk(dir string) {
 }
 
 // Decode Gob filearg
-func Load(object interface{}) error {
-	file, err := os.Open(DB_PATH)
+func Load(object interface{}, c Configuration) error {
+	file, err := os.Open(c.StorageLocation + "/index.gob")
 	if err == nil {
 		decoder := gob.NewDecoder(file)
 		err = decoder.Decode(object)
@@ -136,9 +169,9 @@ func Load(object interface{}) error {
 	return err
 }
 
-// Encode via Gob to file
-func Save(object interface{}) error {
-	file, err := os.Create(DB_PATH)
+//Encode our index to file
+func save(object interface{}, c Configuration) error {
+	file, err := os.Create(c.StorageLocation + "/index.gob")
 	if err == nil {
 		encoder := gob.NewEncoder(file)
 		encoder.Encode(object)
