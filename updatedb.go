@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+
 	"os"
 	_"path/filepath"
 	"strings"
@@ -10,9 +10,11 @@ import (
 	"encoding/gob"
 	//"path"
 	"sync"
-	"sort"
-	_"time"
+	_"sort"
+
 	"path/filepath"
+
+	"fmt"
 )
 
 var documents []string
@@ -20,113 +22,108 @@ var documents []string
 const DB_PATH = "/tmp/docs.gob"
 
 
-var folderQueue = make(chan string, 10)
-
-
-func addToQueue(path string){
-	folderQueue <- path
+type FolderWalker interface {
+	Walk()
 }
-
 
 func Build() {
 	buildIndexWithWalk("/")
 	Save(documents)
-
+	//sort.Strings(documents)
 }
 
+//BuildIndexConcurrent builds the index by walking through the filepath while calling readDir concurrently.
+//The amount of concurrent calls to readDir are limited for two reasons 1) To prevent opening too many files
+//2) To modify for best performance.It is considerably faster than using filepath.Walk when reading large directories.
+func buildIndexConcurrent(dir string) {
+	numbJobs := 100
+	jobsRunning := 0
 
-func buildIndex(dir string) {
-	c := make(chan string, 10)
-
-	defer close(c)
+	dirsToRead := make(chan string)
+	results := make(chan string)
+	finished := make(chan bool)
 
 	var wg sync.WaitGroup
+
 	wg.Add(1)
+	jobsRunning += 1
 
-	go readDirWithReadDir(dir, c, &wg);
+	var dirQueue []string;
+	go readDir(dir, results, dirsToRead, finished)
+
 	go func() {
-		for path := range c {
-			documents = append(documents, path)
-			matched := strings.Contains(path, "hello")
-			if matched {
-			//	fmt.Println(path)
-
+		for {
+			select {
+			case dir := <-results:
+				documents = append(documents, dir)
+			case dir := <-dirsToRead:
+				dirQueue = append(dirQueue, dir)
+			case <-finished:
+				jobsRunning--
+				processes := min(numbJobs-jobsRunning, len(dirQueue))
+				wg.Add(processes)
+				for i := 0; i < processes; i++ {
+					dir := dirQueue[len(dirQueue) - 1]
+					dirQueue = dirQueue[:len(dirQueue) - 1]
+					jobsRunning++;
+					go readDir(dir, results, dirsToRead, finished);
+				}
+				wg.Done()
 			}
-
 		}
 	}()
-
 	wg.Wait()
-
-	sort.Strings(documents)
-
-	for _ , path := range documents {
-		fmt.Println(path)
-	}
-
-	Save(documents)
 }
 
 
-func buildIndexWithWalk(dir string) {
-	//fmt.Println(len(documents))
-	filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
-		if(err != nil){
-			fmt.Println(err)
-		}
-		documents = append(documents, path)
-		return nil
-	});
-}
-
-
-
-func readDirWithReadDir(dir string, c chan string,wg *sync.WaitGroup) {
-
-	defer wg.Done()
+//readDir reads a directory by opening it and iterating over it's files. If the file is a folder
+//it is returned on the dirsToRead to be added to the queue of work to do. The function returns all
+//paths on the results channel and reports to the finished channel when it is done working.
+func readDir(dir string, results chan <- string, dirsToRead chan <- string, finished chan <- bool) {
 
 	file, err := os.Open(dir)
 
-
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
+		finished <- true
+		file.Close()
+		return
 	}
-//buildIndex("/home/vlaurenzano")
-	//a, _ := os.Lstat("/home/vlaurenzano")
+
 	slice, err := file.Readdir(-1)
 
 	file.Close()
 
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
+		finished <- true
+		return
 	}
 
-	_ = err
-
-	var folders []string
-
+	dir = strings.TrimRight(dir, "/")
 	for _, fileOrFolder := range slice {
-
 		name := dir + "/" + fileOrFolder.Name()
-
-		if(fileOrFolder.IsDir()) {
-			folders = append(folders, name)
-		} else {
-			c<-name
+		if (fileOrFolder.IsDir()) {
+			dirsToRead <- name
 		}
-
+		results <- name
 	}
 
-	if l := len(folders); l > 0 {
-		wg.Add(l)
-		for _, folder := range folders {
-			go readDirWithReadDir(folder, c, wg)
-		}
-	}
-
+	finished <- true
 }
 
 
+
+func buildIndexWithWalk(dir string) {
+	//fmt.Println(len(documents))
+	filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
+		if (err != nil) {
+			//fmt.Println(err)
+		}
+		documents = append(documents, path)
+		return nil
+	});
+}
 
 // Decode Gob filearg
 func Load(object interface{}) error {
@@ -153,4 +150,10 @@ func Save(object interface{}) error {
 	return err
 }
 
+func min(x, y int) int {
+	if x < y {
+		return x
 
+	}
+	return y
+}
