@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"testing"
@@ -35,3 +35,4 @@ func TestBuildIndexConcurrent(b *testing.T) {
 func TestBuildIndexWithWalk(b *testing.T) {
 	buildIndexWithWalk("/home")
 }
+
