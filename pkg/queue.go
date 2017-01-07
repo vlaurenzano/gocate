@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import "container/heap"
 
@@ -47,6 +47,10 @@ func (pq *PriorityQueue) update(item *Match, value string, priority int) {
 	item.value = value
 	item.priority = priority
 	heap.Fix(pq, item.index)
+}
+
+func (m *Match) Value() string {
+	return m.value;
 }
 
 
