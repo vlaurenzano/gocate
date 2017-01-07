@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/vlaurenzano/gocate.svg?branch=master)](https://travis-ci.org/vlaurenzano/gocate)
 # gocate
 gocate is an implentation of the locate command written in golang.
 
